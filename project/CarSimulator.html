@@ -1,0 +1,1082 @@
+<!doctype html>
+<html>
+  <head>
+      <!--per ricaricare sempre la pagina da zero e non usare la cache-->
+      <META HTTP-EQUIV=”Pragma” CONTENT=”no-cache”>
+      <META HTTP-EQUIV=”Cache-Control” CONTENT=”no-cache”>
+      <!--per definire la dimensione e posizione dell'elemento canvas;
+        se i valori di width ed height inpostati qui sono superiori a
+        corrispondenti settati in <canvas width= .. height=.. l'immagine
+        verra' adattata ingrandendola, mentre se i valori sono inferiori,
+        l'immagine verra' adattata rimpicciolendola
+      -->
+<!-- 
+      <body>         
+          <style type="text/css">
+             canvas { border: 2px solid blue; }
+          </style>
+      </body>
+-->
+      <style>
+      body {
+            background: #dddddd;
+        }
+        #my_Canvas {
+            margin: 0px;
+            padding: 0px;
+            background: #ffffff;
+            border: thin inset #aaaaaa;
+        }
+        .container {  /*to manage text on canvas and webgl */
+          position: relative;
+        }
+        #text { /*to manage text on canvas and webgl */
+          background-color: transparent;  /* needed because we setcanvas bg color to white */
+          position: absolute;
+          left: 0px;
+          top: 0px;
+          z-index: 10;
+        }
+      </style>
+   </head>
+<body>
+  <!-- <p> </p>
+  <button id = "Button1">Increase D</button>
+  <button id = "Button2">Decrease D</button>
+  <button id = "Button3">Increase Zm</button>
+  <button id = "Button4">Decrease Zm</button>
+  <button id = "Button5">Increase fov</button>
+  <button id = "Button6">Decrease fov</button>
+  <p> </p> -->
+
+<div class="container"> 
+  <canvas width="600" height="600" id="text"></canvas>
+  <canvas width="600" height="600" id="my_Canvas"></canvas>
+  <!-- to manage text on canvas and webgl -->
+  
+
+<!-- <p>
+  <button id = "Button7">Left</button>
+  <button id = "Button8">Right</button>
+  <button id = "Button9">GAS</button>
+</p> -->
+
+<script id="vertex-shader" type="not-javascript">
+    attribute vec3 position;
+    attribute vec3 normal;
+    uniform mat4 Pmatrix; 
+    uniform mat4 Vmatrix;
+    uniform mat4 Mmatrix;
+    uniform mat4 worldInverseTransposeMatrix;
+    uniform vec3 u_lightDirection;
+    uniform vec3 u_viewPosition;
+
+                            
+                          //viewProjectionMatrix = P * V * M
+                          //worldMatrix = M
+    varying vec3 vNormal;    
+    varying vec3 v_surfaceToLight;
+    varying vec3 v_surfaceToView;
+
+    attribute vec4 ka;    //ambient color
+    attribute vec4 kd;    //diffuse color
+    attribute vec4 ks;    //specular color
+
+    uniform vec4 Ia;      //ambient light
+    uniform vec4 Id;      //difuse light
+    uniform vec4 Is;      //specular light
+
+    varying vec4 ambientColor;       //difuse color varying
+    varying vec4 diffuseColor;       //ambient color varying
+    varying vec4 specularColor;       //specular color varying
+
+    attribute vec2 a_texcoord;
+    uniform bool isTexture;
+    varying vec2 v_texcoord;
+
+    void main(void) { //pre-built function
+      gl_Position = Pmatrix*Vmatrix*Mmatrix*vec4(position, 1.);
+      vNormal = mat3(worldInverseTransposeMatrix) * normal;
+      vec3 worldPosition = (Mmatrix * vec4(position, 1.)).xyz;
+      v_surfaceToLight = u_lightDirection;
+      v_surfaceToView = u_viewPosition - worldPosition;
+
+      ambientColor = Ia * ka;
+      specularColor = Is * ks; 
+      diffuseColor = Id * kd;
+      
+      if (isTexture) {
+        v_texcoord = a_texcoord;
+      }
+    }
+</script>
+
+<script id="fragment-shader" type="not-javascript">
+    precision mediump float; 
+
+    varying vec3 vNormal;    
+    varying vec3 v_surfaceToLight;
+    varying vec3 v_surfaceToView;
+
+    varying vec4 ambientColor;       //ambient color varying
+    varying vec4 diffuseColor;       //diffuse color varying
+    varying vec4 specularColor;       //specular color varying
+
+    varying vec2 v_texcoord;
+
+    uniform sampler2D u_texture;
+    uniform bool isTexture;
+
+    uniform vec4 Ia_2;      //ambient light
+    uniform vec4 Id_2;      //difuse light
+    
+
+    void main(void) {
+      vec3 normal = normalize(vNormal);
+      vec3 surfaceToLight = normalize(v_surfaceToLight);
+      vec3 surfaceToView = normalize(v_surfaceToView);
+      vec3 halfVector = normalize(surfaceToLight + surfaceToView);
+
+      //float light = dot(normal, surfaceToLight);
+      float light = max(dot(normal, surfaceToLight), 0.0);
+      float specular = 0.0;
+      float shininess = 15.0;
+      shininess = 150.0;
+
+      if (light > 0.0){
+        specular = max(pow(dot(normal, halfVector), shininess), 0.0);
+      }
+
+      
+      if(!isTexture) {
+        gl_FragColor = ambientColor;
+        gl_FragColor += light*diffuseColor;
+      }
+
+      if (isTexture){
+        vec4 texcolor = texture2D(u_texture, v_texcoord);
+        gl_FragColor = Ia_2 * texcolor;
+        gl_FragColor += Id_2 * texcolor;
+      }
+
+      gl_FragColor += specular*specularColor;
+    }
+</script>
+
+<script type="text/javascript" src="resources/webgl-utils.js"></script>
+<script type="text/javascript" src="resources/m4.js"></script>
+<!--
+<script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>!-->
+<script type="text/javascript" src="resources/jquery-3.5.0.js"></script> 
+<script src="car4.js"></script>
+<script>
+
+
+var mo_matrix, mo_matrix1, worldInverseTransposeMatrix;
+/*============= Creating a canvas ======================*/ 
+var canvas = document.getElementById('my_Canvas');
+gl = canvas.getContext('webgl');
+//to manage text on canvas and webgl
+// look up the text canvas.
+var textCanvas = document.getElementById("text");
+// make a 2D context for it
+var ctx = textCanvas.getContext("2d");
+
+/*========== Defining and storing the geometry ==========*/
+
+
+var vertices4 = [], normals4 = [], colors4A = [], colors4D = [], colors4S = [], indices4 = [];  //Chassis
+var vertices5 = [], normals5 = [], colors5A = [], colors5D = [], colors5S = [], indices5 = [];  //Front wheel
+var vertices6 = [], normals6 = [], colors6A = [], colors6D = [], colors6S = [], indices6 = [];  //Front metal
+var vertices7 = [], normals7 = [], colors7A = [], colors7D = [], colors7S = [], indices7 = [];  //Back wheel 
+var vertices8 = [], normals8 = [], colors8A = [], colors8D = [], colors8S = [], indices8 = [];  //Back metal
+var vertices9 = [], normals9 = [], colors9A = [], colors9D = [], colors9S = [], indices9 = [];  //Floor
+var vertices10 = [], normals10 = [], colors10A = [], colors10D = [], colors10S = [], indices10 = [];  //Stick
+var vertices11 = [], normals11 = [], colors11A = [], colors11D = [], colors11S = [], indices11 = [];  //Flag
+var vertices12 = [], normals12 = [], colors12A = [], colors12D = [], colors12S = [], indices12 = [];  //Tree
+var vertices13 = [], normals13 = [], colors13A = [], colors13D = [], colors13S = [], indices13 = [];  //Walls
+
+var center1 = {}, center2 = {}, center3 = {}, center4 = {}, center5 = {}, center6 = {}, center7 = {};
+
+$(document).ready(loadObjs());
+
+function loadObjs(){
+    $.when ($.ajax("resources/data/Ferrari_chassis.obj")).then(function(response){
+      var rgbA = [0.2, 0.2, 0.2, 1.0], rgbD = [1.0, 0.0, 0.0, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0];
+      console.log("Loaded Ferrari_chassis.obj");
+      loadMeshData(response, vertices4, normals4, colors4A, colors4D, colors4S, rgbA, rgbD, rgbS, center1);
+      vertices4 = m4.flatten(vertices4);
+      colors4A = m4.flatten(colors4A);
+      colors4D = m4.flatten(colors4D);
+      colors4S = m4.flatten(colors4S);
+      normals4 = m4.flatten(normals4);
+
+      // Create and store data into vertex buffer 
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer4);
+      gl.bufferData(gl.ARRAY_BUFFER,
+        new Float32Array(vertices4), gl.STATIC_DRAW);
+      // Create and store data into color buffer 
+      gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer4A);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors4A), gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer4D);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors4D), gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer4S);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors4S), gl.STATIC_DRAW);
+      // Create and store data into normal buffer
+      gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer4);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals4), gl.STATIC_DRAW);
+      
+      $.when($.ajax("resources/data/Ferrari_wheel_front_R.obj")).then(function(response){
+        //rgbA = [0.2, 0.2, 0.2, 1.0], rgbD = [0.0, 0.0, 0.0, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0];
+        rgbA = [0.02, 0.02, 0.02, 1.0], rgbD = [0.01, 0.01, 0.01, 1.0], rgbS = [0.4, 0.4, 0.4, 1.0]; //Black Rubber
+       // rgbS = [0, 0, 0, 1.0];
+        console.log("Loaded Ferrari_wheel_front_R.obj");
+        loadMeshData(response, vertices5, normals5, colors5A, colors5D, colors5S, rgbA, rgbD, rgbS, center2);
+        vertices5 = m4.flatten(vertices5);
+        colors5A = m4.flatten(colors5A);
+        colors5D = m4.flatten(colors5D);
+        colors5S = m4.flatten(colors5S);
+        normals5 = m4.flatten(normals5);
+
+        // Create and store data into vertex buffer 
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer5);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices5), gl.STATIC_DRAW);
+        // Create and store data into color buffer 
+        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer5A);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors5A), gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer5D);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors5D), gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer5S);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors5S), gl.STATIC_DRAW);
+        // Create and store data into normal buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer5);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals5), gl.STATIC_DRAW);
+        
+
+        $.when($.ajax("resources/data/Ferrari_wheel_back_R.obj")).then(function (response) {
+          //rgbA = [0.0, 0.0, 0.0, 1.0], rgbD = [0.0, 0.0, 0.0, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0];
+          rgbA = [0.02, 0.02, 0.02, 1.0], rgbD = [0.01, 0.01, 0.01, 1.0], rgbS = [0.4, 0.4, 0.4, 1.0]; //Black Rubber
+          //rgbS = [0.1, 0.1, 0.1, 1.0];
+          console.log("Loaded Ferrari_wheel_back_R.obj");
+          loadMeshData(response, vertices7, normals7, colors7A, colors7D, colors7S, rgbA, rgbD, rgbS, center3);
+          vertices7 = m4.flatten(vertices7);
+          colors7A = m4.flatten(colors7A);
+          colors7D = m4.flatten(colors7D);
+          colors7S = m4.flatten(colors7S);
+          normals7 = m4.flatten(normals7);
+
+          // Create and store data into vertex buffer 
+          gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer7);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices7), gl.STATIC_DRAW);
+          // Create and store data into color buffer 
+          gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer7A);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors7A), gl.STATIC_DRAW);
+          gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer7D);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors7D), gl.STATIC_DRAW);
+          gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer7S);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors7S), gl.STATIC_DRAW);
+          // Create and store data into normal buffer
+          gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer7);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals7), gl.STATIC_DRAW);
+          
+
+          $.when($.ajax("resources/data/Ferrari_wheel_front_R_metal.obj")).then(function (response) {
+            rgbA = [1.0, 1.0, 1.0, 1.0], rgbD = [1.0, 1.0, 1.0, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0];
+            console.log("Loaded Ferrari_wheel_front_R_metal.obj");
+            loadMeshData(response, vertices6, normals6, colors6A, colors6D, colors6S, rgbA, rgbD, rgbS, center4);
+            vertices6 = m4.flatten(vertices6);
+            colors6A = m4.flatten(colors6A);
+            colors6D = m4.flatten(colors6D);
+            colors6S = m4.flatten(colors6S);
+            normals6 = m4.flatten(normals6);
+
+            // Create and store data into vertex buffer 
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer6);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices6), gl.STATIC_DRAW);
+            // Create and store data into color buffer 
+            gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer6A);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors6A), gl.STATIC_DRAW);
+            gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer6D);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors6D), gl.STATIC_DRAW);
+            gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer6S);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors6S), gl.STATIC_DRAW);
+            // Create and store data into normal buffer
+            gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer6);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals6), gl.STATIC_DRAW);
+            
+
+            $.when($.ajax("resources/data/Ferrari_wheel_back_R_metal.obj")).then(function (response) {
+              rgbA = [1.0, 1.0, 1.0, 1.0], rgbD = [1.0, 1.0, 1.0, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0];
+              console.log("Loaded Ferrari_wheel_back_R_metal.obj");
+              loadMeshData(response, vertices8, normals8, colors8A, colors8D, colors8S, rgbA, rgbD, rgbS, center5);
+              vertices8 = m4.flatten(vertices8);
+              colors8A = m4.flatten(colors8A);
+              colors8D = m4.flatten(colors8D);
+              colors8S = m4.flatten(colors8S);
+              normals8 = m4.flatten(normals8);
+
+              // Create and store data into vertex buffer 
+              gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer8);
+              gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices8), gl.STATIC_DRAW);
+              // Create and store data into color buffer 
+              gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer8A);
+              gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors8A), gl.STATIC_DRAW);
+              gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer8D);
+              gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors8D), gl.STATIC_DRAW);
+              gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer8S);
+              gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors8S), gl.STATIC_DRAW);
+              // Create and store data into normal buffer
+              gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer8);
+              gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals8), gl.STATIC_DRAW);
+              
+
+              $.when($.ajax("resources/data/suelo.obj")).then(function (response) {
+                rgbA = [0.0, 0.0, 0.0, 1.0], rgbD = [1.0, 1.0, 1.0, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0];
+                console.log("Loaded suelo.obj");
+                loadMeshData(response, vertices9, normals9, colors9A, colors9D, colors9S, rgbA, rgbD, rgbS, center6);
+                vertices9 = m4.flatten(vertices9);
+                colors9A = m4.flatten(colors9A);
+                colors9D = m4.flatten(colors9D);
+                colors9S = m4.flatten(colors9S);
+                normals9 = m4.flatten(normals9);
+
+                // Create and store data into vertex buffer 
+                gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer9);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices9), gl.STATIC_DRAW);
+                // Create and store data into color buffer 
+                gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer9A);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors9A), gl.STATIC_DRAW);
+                gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer9D);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors9D), gl.STATIC_DRAW);
+                gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer9S);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors9S), gl.STATIC_DRAW);
+                // Create and store data into normal buffer
+                gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer9);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals9), gl.STATIC_DRAW);
+                
+                $.when($.ajax("resources/data/stick.obj")).then(function (response) {
+                  rgbA = [0.25, 0.25, 0.25, 1.0], rgbD = [0.5, 0.5, 0.5, 1.0], rgbS = [0.77459, 0.77459, 0.77459, 1.0]; //CHROME
+                  console.log("Loaded stick.obj");
+                  loadMeshData(response, vertices10, normals10, colors10A, colors10D, colors10S, rgbA, rgbD, rgbS, center7);
+                  vertices10 = m4.flatten(vertices10);
+                  colors10A = m4.flatten(colors10A);
+                  colors10D = m4.flatten(colors10D);
+                  colors10S = m4.flatten(colors10S);
+                  normals10 = m4.flatten(normals10);
+
+                  // Create and store data into vertex buffer 
+                  gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer10);
+                  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices10), gl.STATIC_DRAW);
+                  // Create and store data into color buffer 
+                  gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer10A);
+                  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors10A), gl.STATIC_DRAW);
+                  gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer10D);
+                  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors10D), gl.STATIC_DRAW);
+                  gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer10S);
+                  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors10S), gl.STATIC_DRAW);
+                  // Create and store data into normal buffer
+                  gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer10);
+                  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals10), gl.STATIC_DRAW);
+                  
+
+
+                  $.when($.ajax("resources/data/flag.obj")).then(function (response) {
+                    rgbA = [0.25, 0.25, 0.25, 1.0], rgbD = [0.1, 0.1, 0.1, 1.0], rgbS = [0.77459, 0.77459, 0.77459, 1.0]; //CHROME
+                    console.log("Loaded flag.obj");
+                    loadMeshData(response, vertices11, normals11, colors11A, colors11D, colors11S, rgbA, rgbD, rgbS, center7);
+                    vertices11 = m4.flatten(vertices11);
+                    colors11A = m4.flatten(colors11A);
+                    colors11D = m4.flatten(colors11D);
+                    colors11S = m4.flatten(colors11S);
+                    normals11 = m4.flatten(normals11);
+
+                    // Create and store data into vertex buffer 
+                    gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer11);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices11), gl.STATIC_DRAW);
+                    // Create and store data into color buffer 
+                    gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer11A);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors11A), gl.STATIC_DRAW);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer11D);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors11D), gl.STATIC_DRAW);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer11S);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors11S), gl.STATIC_DRAW);
+                    // Create and store data into normal buffer
+                    gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer11);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals11), gl.STATIC_DRAW);
+                    
+
+
+                    $.when($.ajax("resources/data/low_tree.obj")).then(function (response) {
+                      rgbA = [0.247, 0.188, 0.114, 1.0], rgbD = [0.247, 0.188, 0.114, 1.0], rgbS = [1.0, 1.0, 1.0, 1.0]; 
+                      //rgbS = [0.1, 0.1, 0.1, 1.0];
+                      console.log("Loaded low_tree.obj");
+                      
+                      loadMeshData(response, vertices12, normals12, colors12A, colors12D, colors12S, rgbA, rgbD, rgbS, center7);
+                      vertices12 = m4.flatten(vertices12);
+                      colors12A = m4.flatten(colors12A);
+                      colors12D = m4.flatten(colors12D);
+                      //console.log(colors12D);
+                      colors12S = m4.flatten(colors12S);
+                      normals12 = m4.flatten(normals12);
+
+                      // Create and store data into vertex buffer 
+                      gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer12);
+                      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices12), gl.STATIC_DRAW);
+                      // Create and store data into color buffer 
+                      gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer12A);
+                      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors12A), gl.STATIC_DRAW);
+                      gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer12D);
+                      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors12D), gl.STATIC_DRAW);
+                      gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer12S);
+                      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors12S), gl.STATIC_DRAW);
+                      // Create and store data into normal buffer
+                      gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer12);
+                      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals12), gl.STATIC_DRAW);
+                      
+
+                      $.when($.ajax("resources/data/walls.obj")).then(function (response) {
+                        rgbA = [1.0, 0.0, 0.0, 1.0], rgbD = [1.0, 0.0, 0.0, 1.0], rgbS = [0.0, 0.0, 0.0, 1.0]; 
+                        //rgbS = [0.1, 0.1, 0.1, 1.0];
+                        console.log("Loaded walls.obj");
+                        
+                        loadMeshData(response, vertices13, normals13, colors13A, colors13D, colors13S, rgbA, rgbD, rgbS, center7);
+                        vertices13 = m4.flatten(vertices13);
+                        colors13A = m4.flatten(colors13A);
+                        colors13D = m4.flatten(colors13D);
+                        colors13S = m4.flatten(colors13S);
+                        normals13 = m4.flatten(normals13);
+
+                        // Create and store data into vertex buffer 
+                        gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer13);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices13), gl.STATIC_DRAW);
+                        // Create and store data into color buffer 
+                        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer13A);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors13A), gl.STATIC_DRAW);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer13D);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors13D), gl.STATIC_DRAW);
+                        gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer13S);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors13S), gl.STATIC_DRAW);
+                        // Create and store data into normal buffer
+                        gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer13);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals13), gl.STATIC_DRAW);
+                        
+
+                        start();
+
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+
+      });
+
+    });
+
+    
+
+}
+
+
+function degToRad(d) {
+   return d * Math.PI / 180;
+}
+
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer4 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer4A = gl.createBuffer();
+  var color_buffer4D = gl.createBuffer();
+  var color_buffer4S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer4 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer5 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer5A = gl.createBuffer();
+  var color_buffer5D = gl.createBuffer();
+  var color_buffer5S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer5 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer6 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer6A = gl.createBuffer();
+  var color_buffer6D = gl.createBuffer();
+  var color_buffer6S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer6 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer7 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer7A = gl.createBuffer();
+  var color_buffer7D = gl.createBuffer();
+  var color_buffer7S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer7 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer8 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer8A = gl.createBuffer();
+  var color_buffer8D = gl.createBuffer();
+  var color_buffer8S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer8 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer9 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer9A = gl.createBuffer();
+  var color_buffer9D = gl.createBuffer();
+  var color_buffer9S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer9 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer10 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer10A = gl.createBuffer();
+  var color_buffer10D = gl.createBuffer();
+  var color_buffer10S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer10 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer11 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer11A = gl.createBuffer();
+  var color_buffer11D = gl.createBuffer();
+  var color_buffer11S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer11 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer12 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer12A = gl.createBuffer();
+  var color_buffer12D = gl.createBuffer();
+  var color_buffer12S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer12 = gl.createBuffer();
+
+  // Create and store data into vertex buffer 
+  var vertex_buffer13 = gl.createBuffer();
+  // Create and store data into color buffer 
+  var color_buffer13A = gl.createBuffer();
+  var color_buffer13D = gl.createBuffer();
+  var color_buffer13S = gl.createBuffer();
+  // Create and store data into normal buffer 
+  var normal_buffer13 = gl.createBuffer();
+
+  var texCoords = [
+    1, 1,
+    1, 0,
+    0, 0,
+    1, 1,
+    0, 0,
+    0, 1,
+  ];
+
+  var tex_buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, tex_buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+
+  var texCoords2 = [
+    0, 0,
+    0, 1,
+    1, 1,
+    0, 0,
+    1, 1,
+    1, 0,
+
+    0, 0,
+    0, 1,
+    1, 1,
+    0, 0,
+    1, 1,
+    1, 0,
+
+    0, 0,
+    0, 1,
+    1, 1,
+    0, 0,
+    1, 1,
+    1, 0,
+
+    0, 0,
+    0, 1,
+    1, 1,
+    0, 0,
+    1, 1,
+    1, 0,
+  ];
+
+  var tex_buffer2 = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, tex_buffer2);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords2), gl.STATIC_DRAW);
+
+
+  //usa libreria webgl-utilis.js
+  var shaderprogram = webglUtils.createProgramFromScripts(gl,
+    ["vertex-shader", "fragment-shader"]);
+
+  /*======== Associating attributes to vertex shader =====*/
+  var _Pmatrix = gl.getUniformLocation(shaderprogram, "Pmatrix");
+  var _Vmatrix = gl.getUniformLocation(shaderprogram, "Vmatrix");
+  var _Mmatrix = gl.getUniformLocation(shaderprogram, "Mmatrix");
+  var _worldInverseTranspose = gl.getUniformLocation(shaderprogram, "worldInverseTransposeMatrix");
+  var _position = gl.getAttribLocation(shaderprogram, "position");
+  var _normal = gl.getAttribLocation(shaderprogram, "normal");
+  var _ka = gl.getAttribLocation(shaderprogram, "ka");
+  var _kd = gl.getAttribLocation(shaderprogram, "kd");
+  var _ks = gl.getAttribLocation(shaderprogram, "ks");
+  var _texcoord = gl.getAttribLocation(shaderprogram, "a_texcoord");
+
+  var _lightDirection = gl.getUniformLocation(shaderprogram, "u_lightDirection");
+  var _viewPosition = gl.getUniformLocation(shaderprogram, "u_viewPosition");
+
+  var _ambientLight = gl.getUniformLocation(shaderprogram, "Ia");
+  var _diffuseLight = gl.getUniformLocation(shaderprogram, "Id");
+  var _specularLight = gl.getUniformLocation(shaderprogram, "Is");
+  var _ambientLight2 = gl.getUniformLocation(shaderprogram, "Ia_2");
+  var _diffuseLight2 = gl.getUniformLocation(shaderprogram, "Id_2");
+
+  var _isTexture = gl.getUniformLocation(shaderprogram, "isTexture");
+  var tex_uniform_location = gl.getUniformLocation(shaderprogram, "u_texture");
+
+  gl.useProgram(shaderprogram);
+
+  function isPowerOf2(value) {
+    return (value & (value - 1)) == 0;
+  }
+    // Create a texture.
+    var texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Fill the texture with a 1x1 blue pixel.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 255, 255]));
+    // Asynchronously load an image
+    var image = new Image();
+    image.src = "resources/images/racetrack.png";
+    image.addEventListener('load', function () {
+      // Now that the image has loaded make copy it to the texture.
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+      // Check if the image is a power of 2 in both dimensions.
+      if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+        console.log("POWER OF 2")
+        // Yes, it's a power of 2. Generate mips.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.generateMipmap(gl.TEXTURE_2D);
+      } else {
+        console.log("NOT POWER OF 2")
+        // No, it's not a power of 2. Turn off mips and set wrapping to clamp to edge
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+    });
+
+    // Create a texture.
+    var texture2 = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture2);
+
+    // Fill the texture with a 1x1 blue pixel.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 255, 255]));
+    // Asynchronously load an image
+    var image2 = new Image();
+    image2.src = "resources/images/flag.jpg";
+    image2.addEventListener('load', function () {
+      // Now that the image has loaded make copy it to the texture.
+      gl.bindTexture(gl.TEXTURE_2D, texture2);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image2);
+
+      // Check if the image is a power of 2 in both dimensions.
+      if (isPowerOf2(image2.width) && isPowerOf2(image2.height)) {
+        console.log("POWER OF 2")
+        // Yes, it's a power of 2. Generate mips.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.generateMipmap(gl.TEXTURE_2D);
+      } else {
+        console.log("NOT POWER OF 2")
+        // No, it's not a power of 2. Turn off mips and set wrapping to clamp to edge
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+    });
+
+    // Create a texture.
+    var texture3 = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture3);
+
+    // Fill the texture with a 1x1 blue pixel.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 255, 255]));
+    // Asynchronously load an image
+    var image3 = new Image();
+    image3.src = "resources/images/sky.jpg";
+    image3.addEventListener('load', function () {
+      // Now that the image has loaded make copy it to the texture.
+      gl.bindTexture(gl.TEXTURE_2D, texture3);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image3);
+
+      // Check if the image is a power of 2 in both dimensions.
+      if (isPowerOf2(image3.width) && isPowerOf2(image3.height)) {
+        console.log("POWER OF 2")
+        // Yes, it's a power of 2. Generate mips.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.generateMipmap(gl.TEXTURE_2D);
+      } else {
+        console.log("NOT POWER OF 2")
+        // No, it's not a power of 2. Turn off mips and set wrapping to clamp to edge
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+    });
+
+  
+  //definizione parametri iniziali
+  var aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+  var zmin = 1;
+  var zmax = 100;
+  var fov = 40;
+
+  var THETA = degToRad(50), PHI = degToRad(30);
+  var D = 7;
+
+  var target = [0, 0, 0];
+  var up = [0, 1, 0];
+  var light = [0, 0, 0];
+
+  var drag;
+  
+  var cameraMode = 1;
+  var gasON = false;
+  var time0 = 0, timeEnd=0;
+  var meta1 = false, meta2 = false, stopTime = false, started = false;
+  
+
+  /*================= Mouse events ======================*/
+  var mouseDown = function (e) {
+    drag = true;
+    old_x = e.pageX, old_y = e.pageY;
+    e.preventDefault();
+    return false;
+  };
+
+  var mouseDown2 = function(e){
+    canvas_x=e.pageX;
+    canvas_y=e.pageY;
+    var loc = windowToCanvas(canvas, canvas_x, canvas_y);
+
+    if ((loc.x>225) && (loc.x<405) && (loc.y>510) && (loc.y<535)){
+      if(cameraMode!=3) cameraMode++;
+      else cameraMode = 1;
+    }
+
+    if ((loc.x>20) && (loc.x<90) && (loc.y>440) && (loc.y<575)){
+      //L
+      //key[1] = true;
+      sterzo += 8*1.6;
+      //console.log(sterzo)
+    }
+
+    if ((loc.x>100) && (loc.x<170) && (loc.y>440) && (loc.y<575)){
+      //R
+      //key[3] = true;
+      sterzo -= 8*1.6;
+      //console.log("sterzo= " + sterzo);
+    }
+
+    if ((loc.x>465) && (loc.x<585) && (loc.y>440) && (loc.y<505)){
+      //gas
+      if(!gasON){
+        key[0] = true;
+        gasON = true;
+      }
+      else {
+        key[0] = false;
+        gasON = false;
+      }
+      
+    }
+
+    if ((loc.x>465) && (loc.x<585) && (loc.y>510) && (loc.y<575)){
+      //brake
+      key[4] = true;
+    }
+
+    //console.log(loc.x,loc.y);
+  }
+
+  var mouseUp2 = function(e) {
+    key[0] = false;
+    key[1] = false;
+    key[2] = false;
+    key[3] = false;
+  }
+
+  function windowToCanvas(canvas, x, y) {
+      var bbox = canvas.getBoundingClientRect();
+
+      return { x: Math.round(x - bbox.left * (canvas.width  / bbox.width)),
+               y: Math.round(y - bbox.top  * (canvas.height / bbox.height))
+             };
+  }
+
+  var mouseUp = function (e) {
+    drag = false;
+  };
+
+  var mouseMove = function (e) {
+    if (!drag) return false;
+    dX = -(e.pageX - old_x) * 2 * Math.PI / canvas.width;
+    dY = -(e.pageY - old_y) * 2 * Math.PI / canvas.height;
+    //console.log('stampa',dX,dY);
+    THETA += dX;
+    PHI += dY;
+    old_x = e.pageX, old_y = e.pageY;
+    e.preventDefault();
+    render();
+  };
+
+  //da usarsi senza animazione
+  // document.getElementById("Button1").onclick = function(){D *= 1.1; render()};
+  // document.getElementById("Button2").onclick = function(){D *= 0.9; render()};
+  // document.getElementById("Button3").onclick = function(){zmin  *= 1.1; zmax *= 1.1; render()};
+  // document.getElementById("Button4").onclick = function(){zmin *= 0.9; zmax *= 0.9; render()};
+  // document.getElementById("Button5").onclick = function(){fov  *= 1.1; fov *= 1.1; render()};
+  // document.getElementById("Button6").onclick = function(){fov *= 0.9; fov *= 0.9; render()};
+
+  // document.getElementById("Button1").onclick = function () { D *= 1.1 };
+  // document.getElementById("Button2").onclick = function () { D *= 0.9 };
+  // document.getElementById("Button3").onclick = function () { zmin *= 1.1; zmax *= 1.1 };
+  // document.getElementById("Button4").onclick = function () { zmin *= 0.9; zmax *= 0.9 };
+  // document.getElementById("Button5").onclick = function () { fov *= 1.1; fov *= 1.1 };
+  // document.getElementById("Button6").onclick = function () { fov *= 0.9; fov *= 0.9 };
+  // document.getElementById("Button7").onmousedown = function () { key[1] = true  };
+  // document.getElementById("Button7").onmouseup = function () { key[1] = false };
+  // document.getElementById("Button8").onmousedown = function () { key[3] = true  };
+  // document.getElementById("Button8").onmouseup = function () { key[3] = false  };
+  // document.getElementById("Button9").onmousedown = function () { key[0] = true };
+  // document.getElementById("Button9").onmouseup = function () { key[0] = false };
+  
+
+  textCanvas.onmousedown = mouseDown2;
+  //textCanvas.onmouseup = mouseUp2;
+  // canvas.onmousedown = mouseDown;
+  // canvas.onmouseup = mouseUp;
+  // //canvas.mouseout = mouseUp;
+  // canvas.onmousemove = mouseMove;
+  window.addEventListener('keydown', doKeyDown, true);
+  window.addEventListener('keyup', doKeyUp, true);
+  /*=================== Drawing =================== */
+  function doKeyDown(e) {
+    //====================
+    // THE W KEY
+    //====================
+    if (e.keyCode == 87) key[0] = true;
+    //====================
+    // THE S KEY
+    //====================
+    if (e.keyCode == 83) key[2] = true;
+    //====================
+    // THE A KEY
+    //====================
+    if (e.keyCode == 65) key[1] = true;
+    //====================
+    // THE D KEY
+    //====================
+    if (e.keyCode == 68) key[3] = true;
+  }
+  function doKeyUp(e) {
+    //====================
+    // THE W KEY
+    //====================
+    if (e.keyCode == 87) key[0] = false;
+    //====================
+    // THE S KEY
+    //====================
+    if (e.keyCode == 83) key[2] = false;
+    //====================
+    // THE A KEY
+    //====================
+    if (e.keyCode == 65) key[1] = false;
+    //====================
+    // THE D KEY
+    //====================
+    if (e.keyCode == 68) key[3] = false;
+  }
+
+  function render(time) {
+    //set projection matrix
+    var proj_matrix = m4.perspective(degToRad(fov), aspect, zmin, zmax);
+    //set view matrix
+    var camera = [D * Math.sin(PHI) * Math.cos(THETA),
+    D * Math.sin(PHI) * Math.sin(THETA),
+    D * Math.cos(PHI)];
+    target = [0, 0, 0];
+
+    var cosf = Math.cos(facing * Math.PI / 180.0);
+    var sinf = Math.sin(facing * Math.PI / 180.0);
+
+    //cameraMode = 1;
+
+    switch(cameraMode){
+      case 0:
+        break;
+      case 1:
+        camera = [sinf * 6 + px/2, 3, cosf * 6 +  pz/2];
+        target = [0 + px/2, 0, 0 + pz/2];
+        break;
+      case 2:
+        camera = [ cosf * 0.45 + 1.7*sinf + px/2 , 0.5, pz/2 -0.45*sinf + 1.7*cosf];
+        target = [-sinf * 6 + px/2, 0, -cosf * 6 +  pz/2];
+        break;
+      case 3:
+        camera = [ px/2 , 0.5, pz/2 ];
+        target = [-sinf * 6 + px/2, 0, -cosf * 6 +  pz/2];
+        break;
+    }
+
+    // console.log("F= "  + facing);
+    // console.log("sinf= " + sinf + " cosf= " + cosf);
+     //console.log(px,py,pz)
+    //console.log("Sterzo= " + sterzo);
+
+    var view_matrix = m4.inverse(m4.lookAt(camera, target, up));
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL); 
+    gl.clearColor(1.0, 1.0, 1.0, 1);
+    /*to manage text on canvas and webgl */
+    // Clear the 2D canvas
+    //to manage text on canvas and webgl
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+    gl.clearDepth(1.0);
+    gl.viewport(0.0, 0.0, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.uniformMatrix4fv(_Pmatrix, false, proj_matrix);
+    gl.uniformMatrix4fv(_Vmatrix, false, view_matrix);
+    //set model matrix to I4
+    mo_matrix = m4.identity();
+    worldInverseTransposeMatrix = m4.transpose(m4.inverse(mo_matrix));
+    gl.uniformMatrix4fv(_Mmatrix, false, mo_matrix);
+    gl.uniformMatrix4fv(_worldInverseTranspose, false, worldInverseTransposeMatrix);
+
+    light = [1, 7, 4];
+    var ambientLight = [0.2, 0.2, 0.2, 1.0];
+    var diffuseLight = [1.0, 1.0, 1.0, 1.0];
+    diffuseLight = [0.8, 0.8, 0.8, 1.0];
+    var specularLight = [1.0, 1.0, 1.0, 1.0];
+
+    gl.uniform3fv(_lightDirection, light);
+    gl.uniform4fv(_ambientLight, ambientLight);
+    gl.uniform4fv(_diffuseLight, diffuseLight);
+    gl.uniform4fv(_specularLight, specularLight);
+    gl.uniform4fv(_ambientLight2, ambientLight);
+    gl.uniform4fv(_diffuseLight2, diffuseLight);
+
+    gl.uniform3fv(_viewPosition, camera);
+
+    gl.uniform1i(_isTexture, 0);
+   
+
+    mo_matrix = m4.scale(mo_matrix, 0.5, 0.5, 0.5);
+    drawMap(); // disegna il map
+     
+    CarRender();
+
+    //to manage text on canvas and webgl
+    ctx.font = '18pt Calibri';
+    ctx.fillStyle = 'white';
+    ctx.fillText('W,A,S,D keys for moving', 190, 560);
+    ctx.font = '14pt Calibri';
+    ctx.fillText('(computer)', 265, 580);
+    ctx.fillStyle = '#c8c8c8';
+    ctx.fillRect(20, 440, 70, 135);   //L
+    ctx.fillRect(100, 440, 70, 135);  //R
+    ctx.fillRect(465, 440, 120, 65); //GAS
+    ctx.fillRect(465, 510, 120, 65); //Brake
+    ctx.fillRect(225, 510, 180, 25); //change camera
+    ctx.font = '18pt Calibri';
+    ctx.fillStyle = 'black';
+    ctx.fillText('L', 47, 547);
+    ctx.fillText('R', 126, 547);
+    ctx.font = '15pt Calibri';
+    if(gasON) ctx.fillText("gas ON", 496, 480);
+    else ctx.fillText("gas OFF", 496, 480);
+    ctx.fillText("brake", 505, 550);
+    ctx.font = '13pt Calibri';
+    ctx.fillText("change camera", 264,527);
+    ctx.font = '40pt Calibri';
+    ctx.fillStyle = 'white';
+
+    if(meta1){
+      if(meta2){
+        timeEnd = time-time0;
+        stopTime = true;
+        meta2 = false;
+      }
+      else{
+        time0 = time;
+        started = true;
+        meta1 = false;
+      }
+    }
+    if(!started) time0 = time;
+    var toPrint = time - time0;
+    if(stopTime) toPrint = timeEnd;
+    ctx.fillText(((toPrint)/1000).toFixed(2),250,75);
+    
+  }
+  // render();
+
+  //Per fare una prova di animazione senza andare a tempo, commentare quanto segue
+  //e scommentare le:
+  //window.requestAnimationFrame(render);
+  //
+  //render()
+  //
+  const FRAMES_PER_SECOND = 30;  // Valid values are 60,30,20,15,10...
+  // set the mim time to render the next frame
+  const FRAME_MIN_TIME = (1000 / 60) * (60 / FRAMES_PER_SECOND) - (1000 / 60) * 0.5;
+  var lastFrameTime = 0;  // the last frame time
+  function update(time) {
+    if (time - lastFrameTime < FRAME_MIN_TIME) { //skip the frame if the call is too early
+      CarDoStep();
+      window.requestAnimationFrame(update);
+      return; // return as there is nothing to do
+    }
+    lastFrameTime = time; // remember the time of the rendered frame
+    // render the frame
+    render(time);
+    window.requestAnimationFrame(update); // get next frame
+  }
+
+function start(){
+  CarInit();
+  update(); // start animation
+  window.requestAnimationFrame(update);
+}
+
+</script>
+   </body>
+</html>  

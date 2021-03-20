@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Car Simulator Beta</title>
+        <h1 style="font-size: 55px;">Car Simulator Beta</h1>
+        <h2 style="text-align: center; margin-left: 0px; margin-top: 0px;">Marcelo Miquel Juan</h2>
+        <style>
+            body{
+                background-color : #dddddd;
+            }
+            p {
+                margin-right: 150px;
+                margin-left: 80px;
+            }
+            h2{margin-left: 80px; margin-top: 50px}
+            
+            h1{text-align: center;}
+            
+            li{margin-left: 100px;}
+
+            img{margin-top: 10px; margin-bottom: 10px;}
+
+            table{
+                border-collapse: collapse;
+                margin-top: 40px;
+                margin-bottom: 40px;
+            }
+
+            table, th, td{
+                border: 1px solid black;
+                
+            }
+
+        
+
+            th{
+                height: 50px;
+                width: 300px;
+            }
+
+            td{
+                height: 50px;
+                width: 300px;
+            }
+
+            .center {
+                display: block;
+                margin-left: auto;
+                margin-right: auto;  
+            }
+
+        </style>
+    </head>
+
+    <body>
+        <img src="image1.png" class="center">
+        <h2>Come funziona:</h2>
+        <p>Affinché tutto funzioni correttamente sia nel computer che nei dispositivi mobili, abbiamo
+            deciso mantenere la semplicità in questo progetto e non modificare la fisica iniziale del "Progetto Car".
+        </p>
+
+        <table class="center" width= 900px>
+            <tr>
+                <th>Azione</th>
+                <th>Commandi Computer</th>
+                <th>Commandi Dispositivi Mobili</th>
+            </tr>
+            <tr>
+                <td>Accelerare</td>
+                <td>Tasto "W"</td>
+                <td>"GAS" tasto <span style="color: red">(4)</span></td>
+            </tr>
+            <tr>
+                <td>Frenare/Marcia Superiore</td>
+                <td>Tasto "S"</td>
+                <td>"Brake" tasto <span style="color: red">(5)</span></td>
+            </tr>
+            <tr>
+                <td>Girare a sinistra</td>
+                <td>Tasto "A"</td>
+                <td>"L" tasto <span style="color: red">(1)</span></td>
+            </tr>
+            <tr>
+                <td>Girare a destra</td>
+                <td>Tasto "D"</td>
+                <td>"R" tasto <span style="color: red">(2)</span></td>
+            </tr>
+            <tr>
+                <td>Cambiare camera</td>
+                <td>"change camera" tasto <span style="color: red">(3)</span></td>
+                <td>"change camera" tasto <span style="color: red">(3)</span></td>
+            </tr>
+        </table>
+        
+
+        <p>I commandi cambiano un poco tra i dispositivi mobili rispetto al computer.
+            Nel computer, quando si rilascia il tasto "W" la macchina smette di accelerare,
+            al contrario nei dispositivi mobili e tablet bisogna premere una sola volta il tasto "GAS" e questo
+            passerà da "GAS OFF" a "GAS ON". Questo significa che starà accelerando indefinitivamente.
+            La velocità si puo regolare con il tasto di freno "brake". Quando si desidera che la macchina si fermi,
+            si deve premere il tasto "GAS" un'altra volta e così cambierà da "GAS ON" a "GAS OFF" un'altra volta.
+        </p>
+
+        <p>
+            Per quanto riguarda la camera, ci sono 3 tipi de camere disponibili: Camera 1, Camera 2 e Camera 3 
+            che si possono cambiare in ordine clickando il tasto "change camera".
+        </p>
+
+        <p>
+            Inoltre, abbiamo aggiunto un contatore (in secondi) nella parte superiore dello schermo che inizia quando la macchina
+            attraversa il traguardo e si ferma quando la macchina fa l'intero giro e passa di nuovo. Lo abbiamo fatto 
+            creando 2 traguardi e il contatore solo ferma si la macchina ha attraversato entrambi traguardi.
+        </p>
+
+        <h2>Modello di illuminazione</h2>
+        <p>In questo progetto abbiamo utilizato il modello di illuminazione di Phong dove il colore finale di un pixel
+            è determinato dalla seguente equazione:
+        </p>
+        <p style="background-color:white; border: 1px solid; text-align: center; padding: 10px 10px 10px 10px;"> FinalColor = Ia * Ka + light * Id * Kd + specular * Is * Ks</p>
+        <p>Dove Ia, Id e Is sono le proprietà della luce e Ka, Kd e Ks sono le proprietà del materiale. 
+            Nel caso si trattasse di una texture, il colore della texture si assegna a Ka e Kd, mentre che Ks si
+            mantiene nel colore bianco.
+        </p>
+        <p>Abbiamo scelto Ia = [0.2, 0.2, 0.2, 1.0], Id = [0.8, 0.8, 0.8, 1.0] 
+            e Is = [1.0, 1.0, 1.0, 1.0]. In questa maniera, quando la luce incide direttamente sulla texture (light=1) 
+            il FinalColor ha il valore della 1*textureColor, mentre se incide con meno angolo, il colore diventa 
+            piú oscuro fino a 0.2*textureColor (light=0).</p>
+
+        <h2>Caricamento dei files</h2>
+        <p>Una parte importante di un'applicazione grafica 3D è il caricamento degli oggetti, poichè possono essere 
+            archivi abbastanza grandi. Per questi tipi di file abbiamo usato la libreria AJAX e 2 
+            funzioni programmati di forma manuale: 
+            <li>loadMeshData(...): prende come input la string del'oggetto intero e lo carica nei arrays.</li>
+            <li>addTriangle(...): questa è chiamata per loadMeshData e prende come input unicamente un triangolo
+                e aggiunge i vertici, normali e colori agli arrays.
+            </li>
+        </p>
+        <p>
+            Inoltre, dato che le funzioni della libreria AJAX si eseguono di forma asincrona, per evitare problemi,
+            quello che abbiamo fatto è definire una funzione loadObjs() che si esegue prima di tutto e solo quando 
+            i 10 archivi obj sono correttamente caricati inizia l'applicazione.
+        </p>
+
+        <h2>Oggetti e textures utilizzati</h2>
+        <p>In questo progetto abbiamo usato un totale di 10 oggetti che si trovano nella cartella /data:
+            <li>Ferrari_chassis.obj: chassis della macchina.</li>
+            <li>Ferrari_wheel_back_R.obj: ruota destra posteriore.</li>
+            <li>Ferrari_wheel_front_R.obj: ruota destra anteriore.</li>
+            <li>Ferrari_wheel_back_R_metal.obj: cerchione destra posteriore.</li>
+            <li>Ferrari_wheel_front_R_metal.obj: cerchione destra anteriore.</li>
+            <li>suelo.obj: suolo.</li>
+            <li>walls.obj: muri.</li>
+            <li>stick.obj: bastone della bandiera.</li>
+            <li>flag.obj: bandiera.</li>
+            <li>low_tree.obj: albero.</li>
+        </p>
+        <p>Le textures che abbiamo utilizato si trovano nella cartella /resources/images e sono le seguenti:
+            <li>flag.jpg</li>
+            <img src="flag.jpg" width="1000" height="105" class="center">
+            <li>racetrack.png</li>
+            <img src="racetrack.png" width="700" height="700" class="center">
+            <li>sky.jpg</li>
+            <img src="sky.jpg" width="750" height="280" class="center">
+        </p>
+
+        
+
+    </body>
+</html>
